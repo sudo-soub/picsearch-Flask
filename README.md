@@ -18,3 +18,5 @@ _Install the required libraries_
 
 _Run the application_
 > flask run
+
+Use postman for working with the routes present in the application.
