@@ -6,10 +6,10 @@ Back-end APIs for interacting with picsearch angular application
 _Install virtualenvironment_
 > pip install virtualenv
 
-_Create a virtual environment for the project for installong required libraries_
+_Create a virtual environment for the project for installong required libraries and then activate it_
 > virtualenv env_name or venv env_name  
-> source env_name/bin/activate (for linux)  
-> env_name\Scripts\activate (for windows)  
+> source env_name/bin/activate (for activating in linux)  
+> env_name\Scripts\activate (for activating in windows)  
 
 _Install the required libraries_
 > pip install -r requirements.txt
