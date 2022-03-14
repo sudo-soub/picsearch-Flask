@@ -14,7 +14,7 @@ _Create a virtual environment for the project for installong required libraries_
 _Install the required libraries_
 > pip install -r requirements.txt
 
-** Make sure the the database server is running locally or remotely as per the connections made.
+** Make sure the database server is running locally or remotely as per the connections made.
 
 _Run the application_
 > flask run
