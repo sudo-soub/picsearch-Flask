@@ -1,10 +1,13 @@
-from flask import Flask, request
+import requests
+import os
+
+from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-from dotenv import load_dotenv
+from flask import Flask, request
+from sqlalchemy import ForeignKey
+
 load_dotenv()
-import os
-import requests
 
 app = Flask(__name__)
 CORS(app)
@@ -13,11 +16,13 @@ user = os.environ.get("postgreUser")
 password = os.environ.get("postgrePassword")
 host = os.environ.get("postgreHost")
 database = os.environ.get("postreDb")
+api_key = os.environ.get("api_key")
+img_url = os.environ.get("img_url")
 
-# use the below conf for connecting to mysql @ localhost
+# use the below conf for connecting to mysql
 # conf = "mysql+pymysql://john:applesauce@localhost:3306/flickr"
 
-# use the belo conf for connecting to postgresql with credentials from environment file
+# below conf is for connecting to postgres
 conf = "postgresql://" + user + ":" + password + "@" + host + "/" + database
 
 app.config[
@@ -25,6 +30,7 @@ app.config[
 ] = conf
 db = SQLAlchemy(app)
 flickrUrl = os.environ.get("flickrUrl")
+
 
 # Model for Cities table
 class Cities(db.Model):
@@ -47,37 +53,124 @@ class Cities(db.Model):
     def __repr__(self):
         return f"{self.id}"
 
+
+# Model for user table
+class User(db.Model):
+    __tablename__ = "user"
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(256))
+    password = db.Column(db.String(256))
+
+    def __repr__(self):
+        return f"{self.id}"
+
+
 # Model for favourites table
 class Favourites(db.Model):
     __tablename__ = "favourites"
     id = db.Column(db.Integer, primary_key=True)
     url = db.Column(db.String(256))
+    user_id = db.Column(db.Integer, ForeignKey(
+        'user.id', ondelete='CASCADE'
+    ))
 
     def create(self):
         db.session.add(self)
         db.session.commit()
         return self
 
-    def __init__(self, url):
+    def __init__(self, url, user_id):
         self.url = url
+        self.user_id = user_id
 
     def __repr__(self):
         return f"{self.url}"
 
+
 db.create_all()
 
-# routes for managing the backend
-@app.route("/api/v1/cities", methods=["POST"]) # provide pictures for given place name or coordinates
+
+@app.before_first_request
+def before_first_request():
+
+    # add data to Cities table
+    check_city = Cities.query.all()
+    if not check_city:
+        city = Cities(name='Paris', lat=48.8589, lon=2.32004)
+        db.session.add(city)
+        db.session.commit()
+        db.session.close()
+
+    # add data to User table
+    check_user = User.query.all()
+    if not check_user:
+        user = User(username='John', password='john@123')
+        db.session.add(user)
+        db.session.commit()
+        db.session.close()
+
+
+# route for user login
+@app.route("/api/v1/login", methods=["POST"])
+def getuser():
+
+    data = request.get_json()
+    username = data['username']
+    password = data['password']
+    result = db.session.query(User.id).filter_by(username=username,
+                                                 password=password).first()
+    if result:
+        print(result)
+        response_object = {
+            'message': 'success',
+            'id': str(result[0])
+        }
+
+    else:
+        response_object = {
+            'message': 'Invalid username or password!'
+        }
+    return response_object
+
+
+# route for user registration
+@app.route("/api/v1/register", methods=["POST"])
+def register():
+
+    data = request.get_json()
+    username = data['username']
+    password = data['password']
+    check = User.query.filter_by(username=username).first()
+    if check:
+        print(check)
+        response_object = {
+            'status': 400,
+            'message': 'User already exists!'
+        }
+    else:
+        new_user = User(username=username, password=password)
+        db.session.add(new_user)
+        db.session.commit()
+        db.session.close()
+        response_object = {
+            'status': 201,
+            'message': 'User successfully created!'
+        }
+    return response_object
+
+
+# provide pictures for given place name or coordinates
+@app.route("/api/v1/cities", methods=["POST"])
 def city_details():
     data = request.get_json()
     image_list = []
     search = Cities.query.filter_by(name=data["city"]).all()
-    if search: # if present in db
+    if search:  # if present in db
         lat = data["lat"]
         lon = data["lon"]
         params = {
             "method": "flickr.photos.search",
-            "api_key": "64a43c7d7ffb9625314393941ea01e45",
+            "api_key": api_key,
             "lat": lat,
             "lon": lon,
             "format": "json",
@@ -89,7 +182,7 @@ def city_details():
         for photo in response["photos"]["photo"]:
             img_dict = {}
             img_dict["url"] = (
-                "https://live.staticflickr.com/"
+                img_url
                 + photo["server"]
                 + "/"
                 + photo["id"]
@@ -99,7 +192,8 @@ def city_details():
             )
             image_list.append(img_dict)
 
-        response_object = {"page": response["photos"]["page"], "pictures": image_list}
+        response_object = {
+            "page": response["photos"]["page"], "pictures": image_list}
 
     else:
         # save city details to db
@@ -113,7 +207,7 @@ def city_details():
         lon = data["lon"]
         params = {
             "method": "flickr.photos.search",
-            "api_key": "64a43c7d7ffb9625314393941ea01e45",
+            "api_key": api_key,
             "lat": lat,
             "lon": lon,
             "format": "json",
@@ -125,7 +219,7 @@ def city_details():
         for photo in response["photos"]["photo"]:
             img_dict = {}
             img_dict["url"] = (
-                "https://live.staticflickr.com/"
+                img_url
                 + photo["server"]
                 + "/"
                 + photo["id"]
@@ -135,12 +229,17 @@ def city_details():
             )
             image_list.append(img_dict)
 
-        response_object = {"page": response["photos"]["page"], "pictures": image_list}
+        response_object = {
+            "page": response["photos"]["page"],
+            "pictures": image_list,
+            "lastpage": response['photos']['pages']
+        }
 
     return response_object
 
 
-@app.route("/api/v1/getCities", methods=["GET"]) # get all preset cities' names
+# get all preset cities' names
+@app.route("/api/v1/getCities", methods=["GET"])
 def getCitiesNames():
     response_list = []
     citiesList = db.session.query(Cities.name).all()
@@ -150,32 +249,61 @@ def getCitiesNames():
     return response
 
 
-@app.route("/api/v1/addtoFavourites", methods=["POST"]) # add pictures to favourites
+# add pictures to favourites
+@app.route("/api/v1/addtoFavourites", methods=["POST"])
 def addtoFav():
     data = request.get_json()
-    check = db.session.query(Favourites).filter_by(url=data["url"]).first()
+    check = db.session.query(Favourites).filter_by(url=data["url"],
+                                                   user_id=data['userid']
+                                                   ).first()
     if check is not None:
-        response = {"present": "true", "message": "Already present in favourites!"}
+        response = {"present": "true",
+                    "message": "Already present in favourites!"}
     else:
-        new_url = Favourites(url=data["url"])
+        new_url = Favourites(url=data["url"], user_id=data['userid'])
         db.session.add(new_url)
         db.session.commit()
         db.session.close()
-        response = {"present": "false", "message": "Successfully added to favourites!"}
+        response = {"present": "false",
+                    "message": "Successfully added to favourites!"}
     return response
 
 
-@app.route("/api/v1/getAllFavourites", methods=["GET"]) # get all favourites pictures
+# remove image from favourites
+@app.route("/api/v1/removeimage", methods=['GET'])
+def removefromfavourites():
+    new_list = []
+    userid = request.args.get("userid")
+    image = request.args.get("url")
+    # get the id of image to be deleted
+    result_id = db.session.query(Favourites.id).filter_by(user_id=userid,
+                                                          url=image).first()
+    # delete the image
+    db.session.query(Favourites).filter_by(id=result_id[0]).delete()
+    db.session.commit()
+    # send updated image list to application
+    req = db.session.query(Favourites.url).filter_by(user_id=userid).all()
+    for items in req:
+        new_list.append(items[0])
+    response = {"data": new_list}
+    return response
+
+
+# get all favourites pictures
+@app.route("/api/v1/getAllFavourites", methods=["GET"])
 def getFavourites():
     favourites_list = []
-    result = db.session.query(Favourites.url).all()
+    userid = request.args.get('userid')
+    print(userid)
+    result = db.session.query(Favourites.url).filter_by(user_id=userid).all()
     for items in result:
         favourites_list.append(items[0])
     response = {"data": favourites_list}
     return response
 
 
-@app.route("/api/v1/presetCitiesData", methods=["POST"]) # get pictures as per place name from preset list
+# get pictures as per place name from preset list
+@app.route("/api/v1/presetCitiesData", methods=["POST"])
 def presetCities():
     data = request.get_json()
     image_list = []
@@ -184,19 +312,19 @@ def presetCities():
     lon = db.session.query(Cities.lon).filter_by(name=place).first()[0]
     params = {
         "method": "flickr.photos.search",
-        "api_key": "64a43c7d7ffb9625314393941ea01e45",
+        "api_key": api_key,
         "lat": lat,
         "lon": lon,
         "format": "json",
         "nojsoncallback": "?",
         "page": 1,
-        "per_page": 10,
+        "per_page": 10
     }
     response = requests.get(flickrUrl, params=params).json()
     for photo in response["photos"]["photo"]:
         img_dict = {}
         img_dict["url"] = (
-            "https://live.staticflickr.com/"
+            img_url
             + photo["server"]
             + "/"
             + photo["id"]
@@ -206,11 +334,17 @@ def presetCities():
         )
         image_list.append(img_dict)
 
-    response_object = {"page": response["photos"]["page"], "pictures": image_list}
+    response_object = {
+        "page": response["photos"]["page"],
+        "pictures": image_list,
+        "lastpage": response['photos']['pages']
+    }
 
     return response_object
 
-@app.route("/api/v1/nextPage", methods=['POST']) # pictures' details from next page
+
+# pictures' details from next page
+@app.route("/api/v1/nextPage", methods=['POST'])
 def nextPage():
     image_list = []
     data = request.get_json()
@@ -220,7 +354,7 @@ def nextPage():
     lon = db.session.query(Cities.lon).filter_by(name=place).first()[0]
     params = {
         "method": "flickr.photos.search",
-        "api_key": "64a43c7d7ffb9625314393941ea01e45",
+        "api_key": api_key,
         "lat": lat,
         "lon": lon,
         "format": "json",
@@ -232,7 +366,7 @@ def nextPage():
     for photo in response["photos"]["photo"]:
         img_dict = {}
         img_dict["url"] = (
-            "https://live.staticflickr.com/"
+            img_url
             + photo["server"]
             + "/"
             + photo["id"]
@@ -242,11 +376,17 @@ def nextPage():
         )
         image_list.append(img_dict)
 
-    response_object = {"page": response["photos"]["page"], "pictures": image_list}
+    response_object = {
+        "page": response["photos"]["page"],
+        "pictures": image_list,
+        "lastpage": response['photos']['pages']
+    }
 
     return response_object
 
-@app.route("/api/v1/prevPage", methods=['POST']) # pictures' details from previous page
+
+# pictures' details from previous page
+@app.route("/api/v1/prevPage", methods=['POST'])
 def prevPage():
     image_list = []
     data = request.get_json()
@@ -256,7 +396,7 @@ def prevPage():
     lon = db.session.query(Cities.lon).filter_by(name=place).first()[0]
     params = {
         "method": "flickr.photos.search",
-        "api_key": "64a43c7d7ffb9625314393941ea01e45",
+        "api_key": api_key,
         "lat": lat,
         "lon": lon,
         "format": "json",
@@ -268,7 +408,7 @@ def prevPage():
     for photo in response["photos"]["photo"]:
         img_dict = {}
         img_dict["url"] = (
-            "https://live.staticflickr.com/"
+            img_url
             + photo["server"]
             + "/"
             + photo["id"]
@@ -278,6 +418,10 @@ def prevPage():
         )
         image_list.append(img_dict)
 
-    response_object = {"page": response["photos"]["page"], "pictures": image_list}
+    response_object = {
+        "page": response["photos"]["page"],
+        "pictures": image_list,
+        "lastpage": response['photos']['pages']
+    }
 
     return response_object
