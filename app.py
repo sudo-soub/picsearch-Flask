@@ -16,14 +16,12 @@ user = os.environ.get("postgreUser")
 password = os.environ.get("postgrePassword")
 host = os.environ.get("postgreHost")
 database = os.environ.get("postreDb")
+url = os.environ.get("url")
 api_key = os.environ.get("api_key")
 img_url = os.environ.get("img_url")
 
-# use the below conf for connecting to mysql
-# conf = "mysql+pymysql://john:applesauce@localhost:3306/flickr"
-
-# below conf is for connecting to postgres
-conf = "postgresql://" + user + ":" + password + "@" + host + "/" + database
+# below conf is for connecting to the database
+conf = url.format(user=user, password=password, host=host, database=database)
 
 app.config[
     "SQLALCHEMY_DATABASE_URI"
@@ -32,8 +30,9 @@ db = SQLAlchemy(app)
 flickrUrl = os.environ.get("flickrUrl")
 
 
-# Model for Cities table
 class Cities(db.Model):
+
+    # Model for Cities table
     __tablename__ = "cities"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(30))
@@ -54,8 +53,9 @@ class Cities(db.Model):
         return f"{self.id}"
 
 
-# Model for user table
 class User(db.Model):
+
+    # Model for user table
     __tablename__ = "user"
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(256))
@@ -65,8 +65,9 @@ class User(db.Model):
         return f"{self.id}"
 
 
-# Model for favourites table
 class Favourites(db.Model):
+
+    # Model for favourites table
     __tablename__ = "favourites"
     id = db.Column(db.Integer, primary_key=True)
     url = db.Column(db.String(256))
@@ -95,6 +96,7 @@ def before_first_request():
 
     # add data to Cities table
     check_city = Cities.query.all()
+
     if not check_city:
         city = Cities(name='Paris', lat=48.8589, lon=2.32004)
         db.session.add(city)
@@ -103,6 +105,7 @@ def before_first_request():
 
     # add data to User table
     check_user = User.query.all()
+
     if not check_user:
         user = User(username='John', password='john@123')
         db.session.add(user)
@@ -110,10 +113,10 @@ def before_first_request():
         db.session.close()
 
 
-# route for user login
 @app.route("/api/v1/login", methods=["POST"])
 def getuser():
 
+    # route for user login
     data = request.get_json()
     username = data['username']
     password = data['password']
@@ -130,13 +133,14 @@ def getuser():
         response_object = {
             'message': 'Invalid username or password!'
         }
+
     return response_object
 
 
-# route for user registration
 @app.route("/api/v1/register", methods=["POST"])
 def register():
 
+    # route for user registration
     data = request.get_json()
     username = data['username']
     password = data['password']
@@ -147,6 +151,7 @@ def register():
             'status': 400,
             'message': 'User already exists!'
         }
+
     else:
         new_user = User(username=username, password=password)
         db.session.add(new_user)
@@ -156,15 +161,18 @@ def register():
             'status': 201,
             'message': 'User successfully created!'
         }
+
     return response_object
 
 
-# provide pictures for given place name or coordinates
 @app.route("/api/v1/cities", methods=["POST"])
 def city_details():
+
+    # provide pictures for given place name or coordinates
     data = request.get_json()
     image_list = []
     search = Cities.query.filter_by(name=data["city"]).all()
+
     if search:  # if present in db
         lat = data["lat"]
         lon = data["lon"]
@@ -179,6 +187,7 @@ def city_details():
             "per_page": 10,
         }
         response = requests.get(flickrUrl, params=params).json()
+
         for photo in response["photos"]["photo"]:
             img_dict = {}
             img_dict["url"] = (
@@ -216,6 +225,7 @@ def city_details():
             "per_page": 10,
         }
         response = requests.get(flickrUrl, params=params).json()
+
         for photo in response["photos"]["photo"]:
             img_dict = {}
             img_dict["url"] = (
@@ -238,27 +248,33 @@ def city_details():
     return response_object
 
 
-# get all preset cities' names
 @app.route("/api/v1/getCities", methods=["GET"])
 def getCitiesNames():
+
+    # get all preset cities' names
     response_list = []
     citiesList = db.session.query(Cities.name).all()
+
     for cities in citiesList:
         response_list.append(cities[0])
+
     response = {"cities": response_list}
     return response
 
 
-# add pictures to favourites
 @app.route("/api/v1/addtoFavourites", methods=["POST"])
 def addtoFav():
+
+    # add pictures to favourites
     data = request.get_json()
     check = db.session.query(Favourites).filter_by(url=data["url"],
                                                    user_id=data['userid']
                                                    ).first()
+
     if check is not None:
         response = {"present": "true",
                     "message": "Already present in favourites!"}
+
     else:
         new_url = Favourites(url=data["url"], user_id=data['userid'])
         db.session.add(new_url)
@@ -266,12 +282,14 @@ def addtoFav():
         db.session.close()
         response = {"present": "false",
                     "message": "Successfully added to favourites!"}
+
     return response
 
 
-# remove image from favourites
 @app.route("/api/v1/removeimage", methods=['GET'])
 def removefromfavourites():
+
+    # remove image from favourites
     new_list = []
     userid = request.args.get("userid")
     image = request.args.get("url")
@@ -283,28 +301,34 @@ def removefromfavourites():
     db.session.commit()
     # send updated image list to application
     req = db.session.query(Favourites.url).filter_by(user_id=userid).all()
+
     for items in req:
         new_list.append(items[0])
+
     response = {"data": new_list}
     return response
 
 
-# get all favourites pictures
 @app.route("/api/v1/getAllFavourites", methods=["GET"])
 def getFavourites():
+
+    # get all favourites pictures
     favourites_list = []
     userid = request.args.get('userid')
     print(userid)
     result = db.session.query(Favourites.url).filter_by(user_id=userid).all()
+
     for items in result:
         favourites_list.append(items[0])
+
     response = {"data": favourites_list}
     return response
 
 
-# get pictures as per place name from preset list
 @app.route("/api/v1/presetCitiesData", methods=["POST"])
 def presetCities():
+
+    # get pictures as per place name from preset list
     data = request.get_json()
     image_list = []
     place = data["place"]
@@ -321,6 +345,7 @@ def presetCities():
         "per_page": 10
     }
     response = requests.get(flickrUrl, params=params).json()
+
     for photo in response["photos"]["photo"]:
         img_dict = {}
         img_dict["url"] = (
@@ -339,13 +364,13 @@ def presetCities():
         "pictures": image_list,
         "lastpage": response['photos']['pages']
     }
-
     return response_object
 
 
-# pictures' details from next page
 @app.route("/api/v1/nextPage", methods=['POST'])
 def nextPage():
+
+    # pictures' details from next page
     image_list = []
     data = request.get_json()
     page = data['page']
@@ -363,6 +388,7 @@ def nextPage():
         "per_page": 10,
     }
     response = requests.get(flickrUrl, params=params).json()
+
     for photo in response["photos"]["photo"]:
         img_dict = {}
         img_dict["url"] = (
@@ -381,13 +407,13 @@ def nextPage():
         "pictures": image_list,
         "lastpage": response['photos']['pages']
     }
-
     return response_object
 
 
-# pictures' details from previous page
 @app.route("/api/v1/prevPage", methods=['POST'])
 def prevPage():
+
+    # pictures' details from previous page
     image_list = []
     data = request.get_json()
     page = data['page']
@@ -405,6 +431,7 @@ def prevPage():
         "per_page": 10,
     }
     response = requests.get(flickrUrl, params=params).json()
+
     for photo in response["photos"]["photo"]:
         img_dict = {}
         img_dict["url"] = (
@@ -423,5 +450,4 @@ def prevPage():
         "pictures": image_list,
         "lastpage": response['photos']['pages']
     }
-
     return response_object
